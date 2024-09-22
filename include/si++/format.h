@@ -2,6 +2,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <concepts>
 
 import Rational;
@@ -12,17 +13,35 @@ class fmt::formatter<Rational<T>> {
   public:
     template <typename ParseContext>
     constexpr auto parse(ParseContext &ctx) {
-        return ctx.begin();
+        auto ctx_beg = ctx.begin();
+        auto fmt_end = std::find(ctx_beg, ctx.end(), '}');
+        if (fmt_end == ctx_beg) {
+            return ctx_beg;
+        }
+        if (*ctx_beg == 'b') {
+            bracketed = true;
+        } else {
+            throw fmt::format_error("invalid rational format specfication");
+        }
+        ctx.advance_to(std::next(ctx.begin()));
+        return fmt_end;
     }
 
     template <typename FormatContext>
-    auto format(Rational<T> const &r, FormatContext &ctx) {
+    auto format(Rational<T> const &r, FormatContext &ctx) const {
         if (r.q == 1) {
             return format_to(ctx.out(), "{}", r.p);
         } else {
-            return format_to(ctx.out(), "{}/{}", r.p, r.q);
+            if (bracketed) {
+                return format_to(ctx.out(), "({}/{})", r.p, r.q);
+            } else {
+                return format_to(ctx.out(), "{}/{}", r.p, r.q);
+            }
         }
     }
+
+  private:
+    bool bracketed = false;
 };
 
 template <>
@@ -37,19 +56,18 @@ class fmt::formatter<SI::SIUnit> {
     auto format(SI::SIUnit const &u, FormatContext &ctx) const {
         auto p = reinterpret_cast<Rational<SI::siint_t> const *>(&u);
         bool first = true;
-        std::string out;
+        auto out = format_to(ctx.out(), "");
         for (int i = 0; i < sizeof(base_names) / sizeof(char *); i++) {
             if (p[i] == 0) {
                 continue;
             }
-            if (!first) {
-                out += "·";
+            out = format_to(ctx.out(), "{}{}", first ? "" : "·", base_names[i]);
+            if (p[i] != 1) {
+                out = format_to(ctx.out(), "^{:b}", p[i]);
             }
-            out += base_names[i];
-            // out += p[i] != 1 ? fmt::format("{:b}", p[i]) : "";
             first = false;
         }
-        return format_to(ctx.out(), "{}", out);
+        return out;
     }
 
   private:
